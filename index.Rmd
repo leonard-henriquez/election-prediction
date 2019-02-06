@@ -28,6 +28,8 @@ library(xgboost)
 seed <- 31
 ```
 
+The full repository (including dataset) is available [here](https://github.com/leonard-henriquez/US_Election)
+
 # 1. Description of the problem
 
 In this workgroup, our objective is to predict the winner of each County for the United-States presidential elections of 2016. We will use a categorical feature called "winner" to know which party won between Republicans and Democrats.To do so, we will use the demographic of US counties.
