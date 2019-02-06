@@ -28,23 +28,27 @@ library(xgboost)
 seed <- 31
 ```
 
-The full repository (including dataset) is available [here](https://github.com/leonard-henriquez/US_Election)  
+The full repository (including dataset) is available [here](https://github.com/leonard-henriquez/US_Election)
+
+<br><br>
 
 # 1. Description of the problem
 
-In this workgroup, our objective is to predict the winner of each County for the United-States presidential elections of 2016. We will use a categorical feature called "winner" to know which party won between Republicans and Democrats.To do so, we will use the demographic of US counties.
-We want to predict if a County's majority of votes will be Democrat or Republican depending on the County demographic caracteristics.
+In this workgroup, our objective is to predict the winner of each county for the United-States presidential elections of 2016. We will use a categorical feature called "winner" to know which party won between Republicans and Democrats. In order to do so, we will use the demographic of US counties.
 
+We want to predict if a county's majority of votes will be Democrat or Republican depending on the County demographic caracteristics.
 
-# 2. Description of the Mathematical problem
+<br><br>
 
-The Mathematical Problem is to explain the output variable $winner$  by the other 56 variables. We denote by $Y$ the variable to explain:
+# 2. Description of the mathematical problem
+
+The mathematical problem is to explain the output variable $winner$  by the other 56 variables. We denote by $Y$ the variable to explain:
 
 $Y=\left\{\begin{array}{ll}{1} & {\text { if the County is won by Republicans }} \\ {0} & {\text { otherwisc. }}\end{array}\right.$
 
-The input variables $(X1,...,X56)$ are demographic caracteristics of each County.
+The input variables $(X_1,...,X_{55})$ are demographic caracteristics of each County.
 
-Here, a county winner prediction can be viewed as a classification rule $g : \mathbb{R}^{57} \rightarrow\{0,1\}$ such that
+Here, a county winner prediction can be viewed as a classification rule $g : \mathbb{R}^{55} \rightarrow\{0,1\}$ such that
 
 $g(x)=\left\{\begin{array}{ll}{1} & {P(Y=1 | X=x) \geq s} \\ {0} & {\text { otherwisc. }}\end{array}\right.$
 
@@ -52,7 +56,11 @@ for a threshlod $s \in[0,1]$. Thus, the problem is to estimate $P(Y=1 | X=x)$ th
 
 For a county winner prediction g, we consider the MSE and the AUC risk. We will estimate these risks according to a random split of the data with 80% of our data in the training set and 20% used to estimate the risk of each machine.
 
+<br><br>
+
 # 3. Description of the dataset
+
+<br><br>
 
 ## 3.1 Building the dataset
 
@@ -69,13 +77,11 @@ results <- read.csv("data/US_County_Level_Presidential_Results_12-16.csv")
 colnames(results)
 ```
 
-
 Let's check what the data is looking like to know if we have any transformation to apply
 ```{r}
 # display the data
 head(results[,1:5])
 ```
-
 
 Transform the data set to keep only the target variable and the FIPS (= zipcode of county)
 ```{r}
@@ -83,7 +89,6 @@ Transform the data set to keep only the target variable and the FIPS (= zipcode 
 results <- results %>% mutate(rep=as.numeric(per_gop_2016>per_dem_2016))
 results <- results %>% select("FIPS", "rep")
 ```
-
 
 Then, we will load demographic data per county
 ```{r}
@@ -94,13 +99,11 @@ county_facts <- read.csv("data/county_facts.csv")
 colnames(county_facts)
 ```
 
-
 Let's check the data
 ```{r}
 # display the data
 head(county_facts[,1:5])
 ```
-
 
 Join the votes results with the demographic data in order to build the final dataset
 ```{r}
@@ -114,7 +117,6 @@ data %>% write.csv(.,file = "data/data.csv")
 head(data[,1:5])
 ```
 
-
 Since the of the variable names aren't very explicit, we have a dictionary
 ```{r}
 # read the data
@@ -127,6 +129,8 @@ names(cf) <- county_facts_dictionary[,1]
 # display the data
 head(cf, n=3)
 ```
+
+<br><br>
 
 ## 3.2 Description
 
@@ -147,14 +151,12 @@ data %>% group_by(rep) %>% select(contains('EDU'))  %>% summarise_all(mean) %>% 
 For both dem and rep, levels of education are in the same proportion regarding High School.
 Counties won by Democrats have +50% of people graduated from Bachelor's degree or higher
 
-
 ```{r}
 income = data %>% select(c(rep, HSG445213, HSD310213, INC910213, PVY020213, LND110210))
 income = rename(income, 'homeowner rate'=HSG445213, 'pers/households'=HSD310213,'Inc/capita' =INC910213, '% below pov'=PVY020213, 'land area'=LND110210, rep=rep)
 income %>% group_by(rep) %>% summarise_all(mean)
 ```
-Except the homeowner rate, the other variables are pretty similar between Republicans and Democrats Counties. 
-
+Except the homeowner rate, the other variables are pretty similar between Republicans and Democrats Counties.
 
 ```{r}
 orig = data %>% select(c(rep, PST045214, AGE775214, RHI125214, RHI225214, RHI425214, RHI725214, POP645213))
@@ -173,11 +175,12 @@ mean_orig
 dfm <- melt(mean_orig[,c('rep','65+yo', 'white', 'black', 'asian', 'hispanic', 'foreign born')],id.vars = 1)
 ggplot(dfm)+aes(x = rep,y = value)+geom_bar(aes(fill = variable),stat = "identity",position = "dodge")+scale_y_log10()
 ```
-We can see that for 65+ years people, dem and rep voters are equally splitted. There is the same trend for white people. 
-However, regarding foreign-origin people, there are significant differences. Especially for Asian. 
+We can see that for 65+ years people, dem and rep voters are equally splitted. There is the same trend for white people.
+However, regarding foreign-origin people, there are significant differences. Especially for Asian.
 
+<br><br>
 
-# Vizualisation of the dataset
+# 4. Vizualisation of the dataset
 
 ```{r include=FALSE}
 # number of counties
@@ -194,7 +197,7 @@ data %>% mutate (winner = c("dem","rep")[rep+1]) %>%
   ggplot()+aes(x=winner, fill=winner)+geom_bar()+scale_fill_manual(values=c("blue","red"))
 ```
 
-
+<br><br>
 
 # 4.A First observations regarding the elections
 
@@ -211,26 +214,27 @@ us.map <- us.map[!us.map$STATEFP %in% c("81", "84", "86", "87", "89", "71", "76"
 # Merge the map with our data data.
 data$FIPS <- as.character(sprintf("%05d", as.numeric(data$FIPS))) # add a 0 before FIPS to match with GEOID
 leafmap <- merge(us.map, data, by.x = "GEOID", by.y = "FIPS")
-leafmap <- na.omit(leafmap, cols="rep")  
+leafmap <- na.omit(leafmap, cols="rep")
 
 # Format popup data for leaflet map.
-popup_dat <- paste0("<strong>County: </strong>", 
-                    leafmap$NAME, 
-                    "<br><strong>Value: </strong>", 
+popup_dat <- paste0("<strong>County: </strong>",
+                    leafmap$NAME,
+                    "<br><strong>Value: </strong>",
                     leafmap$rep)
 
-
-factpal <- colorFactor(c('royal blue','firebrick2'),as.factor(data$rep))
+factpal <- colorFactor(c('royal blue','firebrick2'),as.factor(c("dem", "rep")[data$rep+1]))
 
 # Render final map in leaflet.
-leaflet(leafmap) %>% addTiles() %>% addPolygons(color = ~factpal(rep),
+leaflet(leafmap) %>% addTiles() %>% addPolygons(color = ~factpal(c("dem", "rep")[rep+1]),
               stroke = FALSE, smoothFactor = 0.2,
               fillOpacity = 1,
-              popup = popup_dat) %>% addLegend("bottomright", pal = factpal, values = ~rep,
+              popup = popup_dat) %>% addLegend("bottomright", pal = factpal, values = ~c("dem", "rep")[rep+1],
     title = "Won data in the County",
     opacity = 1)
 ```
 Very Trumpy!
+
+<br><br>
 
 # 4.B More information about the counties and population
 
@@ -247,6 +251,8 @@ ggplot(data)+aes(y=POP060210, x=party)+coord_cartesian(ylim=c(0,5000))+geom_boxp
 ```
 Rep Counties are much less populated.
 
+<br><br>
+
 # 4.D. About Origins
 
 ```{r}
@@ -255,7 +261,6 @@ ggplot(data)+aes(x=POP645213,fill=rep)+geom_histogram(bins=n)+scale_fill_manual(
 # Foreign born persons, percent, 2009-2013
 ```
 Much more foreign borns into 'Democrats' Counties.
-
 
 ```{r}
 ggplot(data)+aes(y=RHI725214, x=party)+geom_boxplot()
@@ -278,9 +283,9 @@ ggplot(data)+aes(x=RHI225214, fill=rep)+geom_histogram(bins=n)+scale_fill_manual
 Much more Black People in 'Democrats'.
 
 ```{r}
-popup_dat <- paste0("<strong>County: </strong>", 
-                    leafmap$NAME, 
-                    "<br><strong>Value: </strong>", 
+popup_dat <- paste0("<strong>County: </strong>",
+                    leafmap$NAME,
+                    "<br><strong>Value: </strong>",
                     leafmap$RHI825214)
 
 pal <- colorQuantile("YlOrRd", NULL, n = 5)
@@ -289,19 +294,18 @@ pal <- colorQuantile("YlOrRd", NULL, n = 5)
 leaflet(leafmap) %>% addTiles() %>% addPolygons(fillColor = ~pal(leafmap$RHI825214),
               stroke = FALSE, smoothFactor = 0.2,
               fillOpacity = 0.8,
-              color = "#BDBDC3", 
+              color = "#BDBDC3",
               weight = 1,
               popup = popup_dat) %>% addLegend("bottomright", pal = pal, values = ~RHI825214,
     title = "% of White Alone people",
     opacity = 1)
 ```
-White People are much more in the North of the US, and we can see that most of them are not in   Democrats Counties (compared to the first map).
-
+White People are much more in the North of the US, and we can see that most of them are not in  'Democrats' counties (compared to the first map).
 
 ```{r}
-popup_dat <- paste0("<strong>County: </strong>", 
-                    leafmap$NAME, 
-                    "<br><strong>Value: </strong>", 
+popup_dat <- paste0("<strong>County: </strong>",
+                    leafmap$NAME,
+                    "<br><strong>Value: </strong>",
                     leafmap$forfirms)
 
 pal <- colorBin("YlOrRd", NULL, n = 100)
@@ -310,7 +314,7 @@ pal <- colorBin("YlOrRd", NULL, n = 100)
 leaflet(leafmap) %>% addTiles() %>% addPolygons(fillColor = ~pal(leafmap$forfirms),
               stroke = FALSE, smoothFactor = 0.2,
               fillOpacity = 0.8,
-              color = "#BDBDC3", 
+              color = "#BDBDC3",
               weight = 1,
               popup = popup_dat) %>% addLegend("bottomright", pal = pal, values = ~forfirms,
     title = "% of firms from minorities",
@@ -318,11 +322,10 @@ leaflet(leafmap) %>% addTiles() %>% addPolygons(fillColor = ~pal(leafmap$forfirm
 ```
 'Democrats' counties are where the proportion of firms owned by minorities is high.
 
-
 ```{r}
-popup_dat <- paste0("<strong>County: </strong>", 
-                    leafmap$NAME, 
-                    "<br><strong>Value: </strong>", 
+popup_dat <- paste0("<strong>County: </strong>",
+                    leafmap$NAME,
+                    "<br><strong>Value: </strong>",
                     leafmap$POP815213)
 
 pal <- colorQuantile("YlOrRd", NULL, n = 4)
@@ -331,14 +334,15 @@ pal <- colorQuantile("YlOrRd", NULL, n = 4)
 leaflet(leafmap) %>% addTiles() %>% addPolygons(fillColor = ~pal(leafmap$POP815213),
               stroke = FALSE, smoothFactor = 0.2,
               fillOpacity = 0.8,
-              color = "#BDBDC3", 
+              color = "#BDBDC3",
               weight = 1,
               popup = popup_dat) %>% addLegend("bottomright", pal = pal, values = ~POP815213,
     title = "% of household with language other than English spoken at home",
     opacity = 1)
 ```
-'Democrats' counties are where the proportion of other language than English spoken at home is   high.
+'Democrats' counties are where the proportion of other language than English spoken at home is high.
 
+<br><br>
 
 # 4.E. About Income
 
@@ -356,6 +360,7 @@ ggplot(data)+aes(x=INC110213,fill=rep)+geom_histogram(bins=n)+scale_fill_manual(
 ```
 Not really difference given the Median household income.
 
+<br><br>
 
 # 4.F About Education
 
@@ -366,11 +371,10 @@ ggplot(data) + aes(y = RHI225214, x = EDU635213, col=party) + geom_point(alpha=0
 ```
 The higher the percentage of black people (despite the education level), the more they vote for the democrate party.
 
-
 ```{r}
-popup_dat <- paste0("<strong>County: </strong>", 
-                    leafmap$NAME, 
-                    "<br><strong>Value: </strong>", 
+popup_dat <- paste0("<strong>County: </strong>",
+                    leafmap$NAME,
+                    "<br><strong>Value: </strong>",
                     leafmap$EDU685213)
 
 pal <- colorQuantile("YlOrRd", NULL, n = 5)
@@ -379,33 +383,36 @@ pal <- colorQuantile("YlOrRd", NULL, n = 5)
 leaflet(leafmap) %>% addTiles() %>% addPolygons(fillColor = ~pal(leafmap$EDU685213),
               stroke = FALSE, smoothFactor = 0.2,
               fillOpacity = 0.8,
-              color = "#BDBDC3", 
+              color = "#BDBDC3",
               weight = 1,
               popup = popup_dat) %>% addLegend("bottomright", pal = pal, values = ~EDU685213,
     title = "% of pop with Bachelor's Degree or higher",
     opacity = 1)
 ```
 
+<br><br>
 
 # 4.G Correlations
 
 We are going to explore the data using scatter plot matrix as well as correlation matrix. Indeed, before getting into the machine learning part, we need to get a better overview of the relations between features. This will help us identify features that could be use in order to shrink the dimension of the data set.
 
+<br><br>
+
 ### 4.G.1 Education & Income
 ```{r}
-edu = data %>% select(c(rep, PST045214, EDU635213, EDU685213, HSG445213, HSD310213, INC910213, PVY020213, LND110210)) 
+edu = data %>% select(c(rep, PST045214, EDU635213, EDU685213, HSG445213, HSD310213, INC910213, PVY020213, LND110210))
 
 edu = rename(edu, 'Pop 2014 est.'=PST045214, 'HS grad o/25'=EDU635213, 'Bach grad o/25'=EDU685213, 'homeowner rate'=HSG445213, 'pers/households'=HSD310213,'Inc/capita' =INC910213, '% below pov'=PVY020213, 'land area'=LND110210, rep=rep)
 
-pairs.panels(edu, 
+pairs.panels(edu,
              method = "pearson", # correlation method
              hist.col = "#00AFBB",
              density = TRUE,  # show density plots
              ellipses = F # show correlation ellipses
              )
 # EDU635213	High school graduate or higher, percent of persons age 25+, 2009-2013
-# EDU685213	Bachelor's degree or higher, percent of persons age 25+, 2009-2013	
-# HSG445213	Homeownership rate, 2009-2013		
+# EDU685213	Bachelor's degree or higher, percent of persons age 25+, 2009-2013
+# HSG445213	Homeownership rate, 2009-2013
 # HSD310213	Persons per household, 2009-2013
 # INC910213	Per capita money income in past 12 months (2013 dollars), 2009-2013
 # PVY020213	Persons below poverty level, percent, 2009-2013
@@ -417,15 +424,16 @@ As we can see, there are strongs (and sometimes obvious) correlations between ed
 
 The scatterplot matrix gives us more information about the relation between variables thanks to the pairplots. There are some interesting correlations between the winner of the election in a county and the homeowner rate.
 
+<br><br>
+
 ### 4.G.2. Population origins
 
 ```{r}
 orig = data %>% select(c(rep, AGE775214, RHI125214, RHI225214, RHI425214, RHI725214, POP645213))
 
-
 orig = rename(orig, '65+yo'=AGE775214, 'white'=RHI125214, 'black'=RHI225214, 'asian'=RHI425214,'hispanic' =RHI725214, 'foreign born'=POP645213, rep=rep)
 
-pairs.panels(orig, 
+pairs.panels(orig,
              method = "pearson", # correlation method
              hist.col = "#00AFBB",
              density = TRUE,  # show density plots
@@ -433,7 +441,7 @@ pairs.panels(orig,
              )
 # PST045214	Population, 2014 estimate
 # AGE775214	Persons 65 years and over, percent, 2014
-# RHI125214	White alone, percent, 2014		
+# RHI125214	White alone, percent, 2014
 # RHI225214	Black or African American alone, percent, 2014
 # RHI425214	Asian alone, percent, 2014
 # RHI725214	Hispanic or Latino, percent, 2014
@@ -448,11 +456,13 @@ This scatterplot matrix gives us great insights about the existing correlations 
 ggcorr(data, method = 'everything', nbreaks=10, palette = "RdYlBu")
 ```
 
-To get some insights and understand which features could be important, we look at the correlations between the 'rep' feature and the other ones. Most of the features have more than 0.2 point of correlation with the 'rep' feature. 
+To get some insights and understand which features could be important, we look at the correlations between the 'rep' feature and the other ones. Most of the features have more than 0.2 point of correlation with the 'rep' feature.
 
-# Machine learning models
+<br><br>
 
-First we will partition the data in a train dataset and a test dataset 
+# 5. Machine learning models
+
+First we will partition the data in a train dataset and a test dataset
 
 ```{r}
 # set the seed for reproducibility
@@ -468,7 +478,6 @@ train.index <- createDataPartition(
 train.data <- data[ train.index,]
 test.data  <- data[-train.index,]
 ```
-
 
 As it seems that we are dealing with unbalanced data, we may want to balance them using the ROSE package.
 
@@ -494,16 +503,14 @@ test.y <-  test.data[,2]
 test <- test.data[, -c(1:4)]
 ```
 
-
 ```{r}
 # Now the percent of county where republicans won in the train dataset:
 mean(train.y)
 ```
 
+<br><br>
 
-
-
-## Logistic models
+## 5.1 Logistic models
 
 The first model that we could try is a logistic regression, given that we are on a binary classification problem
 
@@ -624,7 +631,9 @@ pred.log %>%
 
 The full logit model still perform better than the two other features. Then, from now on, we will based all our new models on all the features.
 
-## Logistic lasso & ridge models
+<br><br>
+
+## 5.2 Logistic lasso & ridge models
 
 Let's try the lasso and the ridge model.
 We will use the cv.glmnet instead of the glmnet function to find the best lambda by 10-fold cross validation
@@ -661,7 +670,6 @@ pred.flr %>%
   setNames(paste0('MSE.', names(.)))
 ```
 
-
 Here is the ROC plot
 ```{r}
 # plot ROC
@@ -680,10 +688,9 @@ pred.flr %>%
 
 In the end, the logit model is still the best model so far
 
+<br><br>
 
-
-
-## Tree
+## 5.3 Trees
 
 We will now try to build different trees
 
@@ -701,7 +708,6 @@ large.tree <- rpart(train.y.factor~., data=train, cp=5.0e-3)
 rpart.plot(large.tree)
 ```
 
-
 Now let's build a simplier tree from the previous one
 
 ```{r}
@@ -714,7 +720,6 @@ simple.tree <- prune(large.tree, cp=0.01)
 # plot the simple tree
 rpart.plot(simple.tree)
 ```
-
 
 Now let's create a tree with the optimal complexity
 ```{r}
@@ -731,8 +736,6 @@ printcp(large.tree)
 # prune tree with the optimal cp
 opt.tree <- prune(large.tree, cp=cp_opt)
 ```
-
-
 
 Let's compare the results of those three machines
 ```{r warning=FALSE}
@@ -766,8 +769,6 @@ forest <- randomForest(train.y.factor~.,data=train)
 forest
 ```
 
-
-
 Now let's compare the results with the previous trees
 ```{r}
 # calculate prediction on the test dataset
@@ -791,7 +792,6 @@ pred.trees %>%
 Wouw! Perfect score!
 Let's check the ROC curve
 
-
 ```{r}
 # plot ROC
 df.trees <- pred.trees %>% gather(key="Score",value="value",-obs)
@@ -808,7 +808,6 @@ pred.trees %>%
   setNames(paste0('AUC.', names(.)))
 ```
 
-
 That's indeed a perfect score...
 
 ```{r}
@@ -819,7 +818,9 @@ obs.factor <- as.factor(test.y)
 confusionMatrix(forest.pred.factor, obs.factor)
 ```
 
-## Bonus: XGBoost
+<br><br>
+
+## 5.4 Bonus: XGBoost
 
 Let's train the model
 ```{r}
@@ -834,7 +835,6 @@ xgboost <- xgboost(
   verbose = 0
   )
 ```
-
 
 And check the results
 ```{r}
