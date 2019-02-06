@@ -1,0 +1,7 @@
+name: "US presidential election of 2016"
+navbar:
+  title: "US presidential election of 2016"
+output:
+  html_document:
+    theme: cosmo
+    code_download: true
