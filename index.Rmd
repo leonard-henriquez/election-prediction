@@ -28,7 +28,7 @@ library(xgboost)
 seed <- 31
 ```
 
-The full repository (including dataset) is available [here](https://github.com/leonard-henriquez/US_Election)
+The full repository (including dataset) is available [here](https://github.com/leonard-henriquez/US_Election)  
 
 # 1. Description of the problem
 
@@ -37,6 +37,20 @@ We want to predict if a County's majority of votes will be Democrat or Republica
 
 
 # 2. Description of the Mathematical problem
+
+The Mathematical Problem is to explain the output variable $winner$  by the other 56 variables. We denote by $Y$ the variable to explain:
+
+$Y=\left\{\begin{array}{ll}{1} & {\text { if the County is won by Republicans }} \\ {0} & {\text { otherwisc. }}\end{array}\right.$
+
+The input variables $(X1,...,X56)$ are demographic caracteristics of each County.
+
+Here, a county winner prediction can be viewed as a classification rule $g : \mathbb{R}^{57} \rightarrow\{0,1\}$ such that
+
+$g(x)=\left\{\begin{array}{ll}{1} & {P(Y=1 | X=x) \geq s} \\ {0} & {\text { otherwisc. }}\end{array}\right.$
+
+for a threshlod $s \in[0,1]$. Thus, the problem is to estimate $P(Y=1 | X=x)$ the probability that the County is won by Republicans given the 56 input variables.
+
+For a county winner prediction g, we consider the MSE and the AUC risk. We will estimate these risks according to a random split of the data with 80% of our data in the training set and 20% used to estimate the risk of each machine.
 
 # 3. Description of the dataset
 
