@@ -3,4 +3,7 @@
 .RData
 .Ruserdata
 *.pdf
-Analysis_files/
+*.nb.html
+docs/
+index_files/
+index_cache/

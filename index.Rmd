@@ -1,0 +1,796 @@
+---
+title: "Machine Learning on US presidential election of 2016"
+author: "Léonard Henriquez, Adrien Lequiller, Nicolas Barbier & Eddy Ohayon"
+date: "`r Sys.Date()`"
+---
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(GGally)
+library(psych)
+library(reshape2)
+library(rgdal)
+library(leaflet)
+library(lattice)
+library(caret)
+library(leaps)
+library(plotROC)
+library(pROC)
+library(glmnet)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(ROSE)
+library(xgboost)
+seed <- 31
+```
+
+# 1. Description of the problem
+
+In this workgroup, our objective is to predict the winner of each County for the United-States presidential elections of 2016. We will use a categorical feature called "winner" to know which party won between Republicans and Democrats.To do so, we will use the demographic of US counties.
+We want to predict if a County's majority of votes will be Democrat or Republican depending on the County demographic caracteristics.
+
+
+# 2. Description of the Mathematical problem
+
+# 3. Description of the dataset
+
+## 3.1 Building the dataset
+
+We are going to build our final dataset from two different ones:
+- the results of the votes from the last two US presidential elections
+- demographic data by county
+
+First we will start by reading the data of the votes from the last two US presidential elections and check the name of the columns
+```{r}
+# read the data
+results <- read.csv("data/US_County_Level_Presidential_Results_12-16.csv")
+
+# display column name
+colnames(results)
+```
+
+
+Let's check what the data is looking like to know if we have any transformation to apply
+```{r}
+# display the data
+head(results[,1:5])
+```
+
+
+Transform the data set to keep only the target variable and the FIPS (= zipcode of county)
+```{r}
+# transform the data
+results <- results %>% mutate(rep=as.numeric(per_gop_2016>per_dem_2016))
+results <- results %>% select("FIPS", "rep")
+```
+
+
+Then, we will load demographic data per county
+```{r}
+# read the data
+county_facts <- read.csv("data/county_facts.csv")
+
+# display column name
+colnames(county_facts)
+```
+
+
+Let's check the data
+```{r}
+# display the data
+head(county_facts[,1:5])
+```
+
+
+Join the votes results with the demographic data in order to build the final dataset
+```{r}
+# join tables
+data <- results %>% inner_join(county_facts, by=c("FIPS" = "fips"))
+
+# output it in order to reuse it in the future
+data %>% write.csv(.,file = "data/data.csv")
+
+# display the data
+head(data[,1:5])
+```
+
+
+Since the of the variable names aren't very explicit, we have a dictionary
+```{r}
+# read the data
+county_facts_dictionary <- read.csv("data/county_facts_dictionary.csv", header=T)
+
+# create the dictionary
+cf <- as.list(county_facts_dictionary[,2])
+names(cf) <- county_facts_dictionary[,1]
+
+# display the data
+head(cf, n=3)
+```
+
+## 3.2 Description
+
+```{r}
+dim(data)
+```
+We have 3141 Counties (observations) and 55 features.
+
+```{r}
+data %>% select(rep) %>% group_by(rep) %>% summarise(n())
+```
+Only 488 of all the Counties (18.3%) were won by Democrats.
+
+```{r}
+data %>% group_by(rep) %>% select(contains('EDU'))  %>% summarise_all(mean) %>% rename("High-School or higher"=EDU635213,"Bachelor-Degree or higher"=EDU685213)
+
+```
+For both dem and rep, levels of education are in the same proportion regarding High School.
+Counties won by Democrats have +50% of people graduated from Bachelor's degree or higher
+
+
+```{r}
+income = data %>% select(c(rep, HSG445213, HSD310213, INC910213, PVY020213, LND110210))
+income = rename(income, 'homeowner rate'=HSG445213, 'pers/households'=HSD310213,'Inc/capita' =INC910213, '% below pov'=PVY020213, 'land area'=LND110210, rep=rep)
+income %>% group_by(rep) %>% summarise_all(mean)
+```
+Except the homeowner rate, the other variables are pretty similar between Republicans and Democrats Counties. 
+
+
+```{r}
+orig = data %>% select(c(rep, PST045214, AGE775214, RHI125214, RHI225214, RHI425214, RHI725214, POP645213))
+orig = rename(orig, 'Pop 2014 est.'=PST045214, '65+yo'=AGE775214, 'white'=RHI125214, 'black'=RHI225214, 'asian'=RHI425214,'hispanic' =RHI725214, 'foreign born'=POP645213, rep=rep)
+orig %>% group_by(rep) %>% summarise_all(mean)
+```
+We clearly see an ethnic difference between the Counties won by Democrats and the ones won by Republicans.
+In 'Democrats' Counties, the proportion of people from minorites are much more important.
+
+```{r}
+orig = data %>% select(c(rep, PST045214, AGE775214, RHI125214, RHI225214, RHI425214, RHI725214, POP645213))
+orig = rename(orig, 'Pop 2014 est.'=PST045214, '65+yo'=AGE775214, 'white'=RHI125214, 'black'=RHI225214, 'asian'=RHI425214,'hispanic' =RHI725214, 'foreign born'=POP645213, rep=rep)
+mean_orig <- orig %>% group_by(rep) %>% summarise_all(mean)
+mean_orig
+
+dfm <- melt(mean_orig[,c('rep','Pop 2014 est.','65+yo', 'white', 'black', 'asian', 'hispanic', 'foreign born')],id.vars = 1)
+ggplot(dfm)+aes(x = rep,y = value)+geom_bar(aes(fill = variable),stat = "identity",position = "dodge")+scale_y_log10()
+```
+We can see that for 65+ years people, dem and rep voters are equally splitted. There is the same trend for white people. 
+However, regarding foreign-origin people, there are significant differences. Especially for Asian. 
+
+
+# Vizualisation of the dataset
+
+```{r include=FALSE}
+# number of counties
+n <- length(data$FIPS)
+
+# for graph purpose in the visuzalization graph (histogram,scatterplot,...)
+colours <- c("dem"="blue", "rep"="red")
+party   <- c("dem","rep")[data$rep+1]
+```
+
+```{r}
+# create bar plot
+data %>% mutate (winner = c("dem","rep")[rep+1]) %>%
+  ggplot()+aes(x=winner, fill=winner)+geom_bar()+scale_fill_manual(values=c("blue","red"))
+```
+
+
+
+# 4.A First observations regarding the elections
+
+```{r}
+data <- data %>% mutate(forfirms=SBO115207+SBO215207+SBO315207+SBO415207+SBO515207) # create a variable with firms owned by minorities for later
+us.map <- readOGR(dsn = paste(getwd(),"/data/cb_2013_us_county_20m", sep=""), layer = "cb_2013_us_county_20m", stringsAsFactors = FALSE)
+# Remove Alaska(2), Hawaii(15), Puerto Rico (72), Guam (66), Virgin Islands (78), American Samoa (60)
+# Mariana Islands (69), Micronesia (64), Marshall Islands (68), Palau (70), Minor Islands (74)
+us.map <- us.map[!us.map$STATEFP %in% c("02", "15", "72", "66", "78", "60", "69",
+                                        "64", "68", "70", "74"),]
+# Make sure other outling islands are removed.
+us.map <- us.map[!us.map$STATEFP %in% c("81", "84", "86", "87", "89", "71", "76",
+                                        "95", "79"),]
+# Merge the map with our data data.
+data$FIPS <- as.character(sprintf("%05d", as.numeric(data$FIPS))) # add a 0 before FIPS to match with GEOID
+leafmap <- merge(us.map, data, by.x = "GEOID", by.y = "FIPS")
+leafmap <- na.omit(leafmap, cols="rep")  
+
+# Format popup data for leaflet map.
+popup_dat <- paste0("<strong>County: </strong>", 
+                    leafmap$NAME, 
+                    "<br><strong>Value: </strong>", 
+                    leafmap$rep)
+
+
+factpal <- colorFactor(c('royal blue','firebrick2'),as.factor(data$rep))
+
+# Render final map in leaflet.
+leaflet(leafmap) %>% addTiles() %>% addPolygons(color = ~factpal(rep),
+              stroke = FALSE, smoothFactor = 0.2,
+              fillOpacity = 1,
+              popup = popup_dat) %>% addLegend("bottomright", pal = factpal, values = ~rep,
+    title = "Won data in the County",
+    opacity = 1)
+```
+Very Trumpy!
+
+# 4.B More information about the counties and population
+
+```{r}
+state=data %>% group_by(state_abbreviation) %>% summarise(counties=n())
+state
+ggplot(state)+aes(x=counties)+geom_histogram(binwidth = 8,fill='royal blue')+theme_classic()
+```
+The number of County per state is very positively skewed.
+
+```{r}
+ggplot(data)+aes(y=POP060210, x=party)+coord_cartesian(ylim=c(0,5000))+geom_boxplot()
+# Population per square mile, 2010
+```
+Rep Counties are much less populated.
+
+# 4.D. About Origins
+
+```{r}
+ggplot(data)+aes(y=POP645213, x=party)+geom_boxplot()
+ggplot(data)+aes(x=POP645213,fill=rep)+geom_histogram(bins=n)+scale_fill_manual(values=colours)+scale_x_continuous("Foreign Born persons")+theme_classic()
+# Foreign born persons, percent, 2009-2013
+```
+Much more foreign borns into 'Democrats' Counties.
+
+
+```{r}
+ggplot(data)+aes(y=RHI725214, x=party)+geom_boxplot()
+ggplot(data)+aes(x=RHI725214, fill=rep)+geom_histogram(bins=n)+scale_fill_manual(values=colours)+scale_x_continuous("Hispanic or latino percentage")+theme_classic()
+# Hispanic or Latino, percent, 2014
+```
+Much more Hispanic or Latino in Democrats.
+
+```{r}
+ggplot(data)+aes(y=RHI425214, x=party)+geom_boxplot()
+# Asian alone, percent, 2014
+```
+Much more Asian people in 'Democrats People'.
+
+```{r}
+ggplot(data)+aes(y=RHI225214, x=party)+geom_boxplot()
+ggplot(data)+aes(x=RHI225214, fill=rep)+geom_histogram(bins=n)+scale_fill_manual(values=colours)+scale_x_continuous("Black of African alone percentage")+theme_classic()
+# Black or African American alone, percent, 2014
+```
+Much more Black People in 'Democrats'.
+
+```{r}
+popup_dat <- paste0("<strong>County: </strong>", 
+                    leafmap$NAME, 
+                    "<br><strong>Value: </strong>", 
+                    leafmap$RHI825214)
+
+pal <- colorQuantile("YlOrRd", NULL, n = 5)
+
+# Render final map in leaflet.
+leaflet(leafmap) %>% addTiles() %>% addPolygons(fillColor = ~pal(leafmap$RHI825214),
+              stroke = FALSE, smoothFactor = 0.2,
+              fillOpacity = 0.8,
+              color = "#BDBDC3", 
+              weight = 1,
+              popup = popup_dat) %>% addLegend("bottomright", pal = pal, values = ~RHI825214,
+    title = "% of White Alone people",
+    opacity = 1)
+```
+White People are much more in the North of the US, and we can see that most of them are not in   Democrats Counties (compared to the first map).
+
+
+```{r}
+popup_dat <- paste0("<strong>County: </strong>", 
+                    leafmap$NAME, 
+                    "<br><strong>Value: </strong>", 
+                    leafmap$forfirms)
+
+pal <- colorBin("YlOrRd", NULL, n = 100)
+
+# Render final map in leaflet.
+leaflet(leafmap) %>% addTiles() %>% addPolygons(fillColor = ~pal(leafmap$forfirms),
+              stroke = FALSE, smoothFactor = 0.2,
+              fillOpacity = 0.8,
+              color = "#BDBDC3", 
+              weight = 1,
+              popup = popup_dat) %>% addLegend("bottomright", pal = pal, values = ~forfirms,
+    title = "% of firms from minorities",
+    opacity = 1)
+```
+'Democrats' counties are where the proportion of firms owned by minorities is high.
+
+
+```{r}
+popup_dat <- paste0("<strong>County: </strong>", 
+                    leafmap$NAME, 
+                    "<br><strong>Value: </strong>", 
+                    leafmap$POP815213)
+
+pal <- colorQuantile("YlOrRd", NULL, n = 4)
+
+# Render final map in leaflet.
+leaflet(leafmap) %>% addTiles() %>% addPolygons(fillColor = ~pal(leafmap$POP815213),
+              stroke = FALSE, smoothFactor = 0.2,
+              fillOpacity = 0.8,
+              color = "#BDBDC3", 
+              weight = 1,
+              popup = popup_dat) %>% addLegend("bottomright", pal = pal, values = ~POP815213,
+    title = "% of household with language other than English spoken at home",
+    opacity = 1)
+```
+'Democrats' counties are where the proportion of other language than English spoken at home is   high.
+
+
+# 4.E. About Income
+
+```{r}
+ggplot(data)+aes(y=INC910213, x=party)+geom_boxplot()
+ggplot(data)+aes(x=INC910213,fill=rep)+geom_histogram(bins=n)+scale_fill_manual(values=colours)+scale_x_continuous("Income per capita")+theme_classic()
+# Per capita money income in past 12 months (2013 dollars), 2009-2013
+```
+Not really difference given income per capita.
+More spread into Democrats counties.
+
+```{r}
+ggplot(data)+aes(y=INC110213, x=party)+geom_boxplot()
+ggplot(data)+aes(x=INC110213,fill=rep)+geom_histogram(bins=n)+scale_fill_manual(values=colours)+scale_x_continuous("Median household income")+theme_classic()
+```
+Not really difference given the Median household income.
+
+
+# 4.F About Education
+
+```{r}
+ggplot(data) + aes(y = RHI225214, x = EDU635213, col=party) + geom_point(alpha=0.5) + scale_color_manual(values=colours)+scale_x_continuous("High school graduate or higher in percentage")+scale_y_continuous("Black of African American alone in percentage")+theme_classic()
+# Black or African American alone, percent, 2014
+# High school graduate or higher, percent of persons age 25+, 2009-2013
+```
+The higher the percentage of black people (despite the education level), the more they vote for the democrate party.
+
+
+```{r}
+popup_dat <- paste0("<strong>County: </strong>", 
+                    leafmap$NAME, 
+                    "<br><strong>Value: </strong>", 
+                    leafmap$EDU685213)
+
+pal <- colorQuantile("YlOrRd", NULL, n = 5)
+
+# Render final map in leaflet.
+leaflet(leafmap) %>% addTiles() %>% addPolygons(fillColor = ~pal(leafmap$EDU685213),
+              stroke = FALSE, smoothFactor = 0.2,
+              fillOpacity = 0.8,
+              color = "#BDBDC3", 
+              weight = 1,
+              popup = popup_dat) %>% addLegend("bottomright", pal = pal, values = ~EDU685213,
+    title = "% of pop with Bachelor's Degree or higher",
+    opacity = 1)
+```
+
+
+# 4.G Correlations
+
+```{r}
+
+```
+
+
+# Machine learning models
+
+First we will partition the data in a train dataset and a test dataset 
+
+```{r}
+# set the seed for reproducibility
+set.seed(seed)
+
+# select the indexes of the rows in the training set
+train.index <- createDataPartition(
+  data$rep, p = .8,
+  list = FALSE,
+  times = 1)
+
+# split the data
+train.data <- data[ train.index,]
+test.data  <- data[-train.index,]
+```
+
+
+As it seems that we are dealing with unbalanced data, we may want to balance them using the ROSE package.
+
+```{r}
+# Percent of county where republicans won in the train dataset:
+mean(train.data$rep)
+
+# Percent of county where republicans won in the test dataset:
+mean(test.data$rep)
+```
+
+Now we will balance the trainning dataset (and not the test dataset)
+
+```{r}
+# oversampling method to balance training set
+# we tried with and without and it greatly improves the results
+train.data.balanced <- ovun.sample(rep ~ ., data = data, method = "over")$data
+
+train.y <-  train.data.balanced[,2]
+train <- train.data.balanced[, -c(1:4)]
+
+test.y <-  test.data[,2]
+test <- test.data[, -c(1:4)]
+```
+
+
+```{r}
+# Now the percent of county where republicans won in the train dataset:
+mean(train.y)
+```
+
+
+
+
+## Logistic models
+
+The first model that we could try is a logistic regression, given that we are on a binary classification problem
+
+```{r warning=FALSE}
+# train logit model
+logit <- glm(train.y~., data = train, family = binomial)
+summary(logit)
+
+```
+
+In the output of the model we see that all the variable are not statistically significant.
+Therefore, before estimating the risk of the model we will try to create smaller models with features selection techniques.
+Then we will be able to compare the results of those models.
+
+```{r}
+# let's limit the max number of features (for readability purpose)
+max.features <- 20
+
+# we create a function to get the selected variables from a regsubsets
+sel.subset <- function (regsubset, nb.features) {
+  subsets <- summary(regsubset)
+  var.sel <- subsets$which[nb.features,][-1]
+  var.sel <- names(var.sel)[var.sel] %>% paste(collapse="+")
+  return(formula(paste("train.y~",var.sel,sep="")))
+}
+```
+
+```{r}
+# we select the best subset variables with the backward method
+sel.back <- regsubsets(train.y~., data=train, really.big = T,
+                       nvmax=max.features, method="backward")
+
+# we display the BIC selection
+plot(sel.back, scale="bic")
+```
+
+We see that the Bayesian Information Criterion doesn't drop much if we keep at least 12 variables.
+So let's keep 12 variables and create a new logistic model based on these 12 features.
+
+```{r}
+# we create a new logit model based on this variable selection
+logit.back <- glm(sel.subset(sel.back, 12), data=train)
+
+# we output the model
+summary(logit.back)
+```
+
+Let's do the same thing with the forward selection method
+```{r}
+# we select the best subset variables with the forward method
+sel.forw <- regsubsets(train.y~., data=train, really.big = T,
+                       nvmax=max.features, method="forward")
+
+# we display the BIC selection
+plot(sel.forw, scale="bic")
+```
+
+Same conclusion, we can safely remove most features and keep the 12 selected by the forward selection method.
+
+```{r}
+# we create the logit model based on this variable selection
+logit.forw <- glm(sel.subset(sel.forw, 12),
+                  data = train,
+                  family = binomial)
+
+# we output the model
+summary(logit.forw)
+```
+
+Now we have created 3 logistic model we may compare them by calculating the mean square error on the test dataset
+
+```{r}
+# function to transform a score into a prediction for a given thresold
+# if value > threshold, then the predicted value is 1 else it's 0
+score.pred <- function (value, threshold = 0.5) {
+  return(ifelse(value > threshold, 1, 0))
+}
+
+# let's define an arbirary threshold
+t <- 0.5
+
+# calculate prediction for the test dataset
+p.full  <- predict( logit,      newdata = test, type = "response")
+p.back  <- predict( logit.back, newdata = test, type = "response")
+p.forw  <- predict( logit.forw, newdata = test, type = "response")
+
+pred.log <- data.frame(
+  logit.full=p.full,
+  logit.back=p.back,
+  logit.forw=p.forw,
+  obs=test.y
+  )
+
+# let's calculate the MSE for the given thresold (t=0.5)
+pred.log %>%
+  select(-obs) %>%
+  summarise_all(funs( mean( (score.pred(., t) - test.y)^2 ) )) %>%
+  setNames(paste0('MSE.', names(.)))
+```
+
+In this case the logit model based on all the variables seems to have a lower estiamted risk than the smaller models.
+As the thresold was arbitrary, we might want to check if it would also be the case for any other threshold.
+In order to do that, let's draw the ROC curve and then calculate the are under (the ROC) curve
+
+```{r}
+# plot ROC
+df.log <- pred.log %>% gather(key="Score",value="value",-obs)
+ggplot(df.log)+aes(d=obs,m=value,color=Score)+geom_roc()+theme_classic()
+```
+
+```{r}
+# AUC
+pred.log %>%
+  select(-obs) %>%
+  summarise_all(funs(auc(test.y, .))) %>%
+  setNames(paste0('AUC.', names(.)))
+```
+
+The full logit model still perform better than the two other features. Then, from now on, we will based all our new models on all the features.
+
+## Logistic lasso & ridge models
+
+Let's try the lasso and the ridge model.
+We will use the cv.glmnet instead of the glmnet function to find the best lambda by 10-fold cross validation
+
+```{r}
+train.mat <- model.matrix(train.y~., data=train)
+test.mat <- model.matrix(test.y~., data=test)
+
+# build machine using the lasso model
+lasso <- cv.glmnet(train.mat, train.y, family="binomial", alpha=1)
+
+# build machine using the ridge model
+ridge <- cv.glmnet(train.mat, train.y, family="binomial", alpha=0)
+```
+
+We can now compare those two new models with the previous logit model
+
+```{r}
+# calculate prediction for the test dataset
+p.lasso <- predict( lasso, newx = test.mat, type = "response") %>% as.vector()
+p.ridge <- predict( ridge, newx = test.mat, type = "response") %>% as.vector()
+
+pred.flr <- data.frame(
+  logit.full=p.full,
+  lasso=p.lasso,
+  ridge=p.ridge,
+  obs=test.y
+  )
+
+# MSE
+pred.flr %>%
+  select(-obs) %>%
+  summarise_all(funs( mean( (score.pred(., t) - test.y)^2 ) )) %>%
+  setNames(paste0('MSE.', names(.)))
+```
+
+
+Here is the ROC plot
+```{r}
+# plot ROC
+df.flr <- pred.flr %>% gather(key="Score",value="value",-obs)
+ggplot(df.flr)+aes(d=obs,m=value,color=Score)+geom_roc()+theme_classic()
+```
+
+On the ROC plot it is difficult to say which model is the best so let's calculate the AUC for each model
+```{r}
+# AUC
+pred.flr %>%
+  select(-obs) %>%
+  summarise_all(funs(auc(test.y, .))) %>%
+  setNames(paste0('AUC.', names(.)))
+```
+
+In the end, the logit model is still the best model so far
+
+
+
+
+## Tree
+
+We will now try to build different trees
+
+First, here is a simple tree
+```{r}
+# set seed for reproducibility
+set.seed(seed)
+
+train.y.factor <- as.factor(train.y)
+
+# build machine using the CART model
+large.tree <- rpart(train.y.factor~., data=train, cp=5.0e-3)
+
+# display the tree
+rpart.plot(large.tree)
+```
+
+
+Now let's build a simplier tree from the previous one
+
+```{r}
+# set seed for reproducibility
+set.seed(seed)
+
+# prune tree in order to build a simple tree
+simple.tree <- prune(large.tree, cp=0.01)
+
+# plot the simple tree
+rpart.plot(simple.tree)
+```
+
+
+Now let's create a tree with the optimal complexity
+```{r}
+# find optimal CP
+cp_opt <- large.tree$cptable %>%
+  as.data.frame() %>%
+  filter(xerror==min(xerror)) %>%
+  dplyr::select(CP) %>%
+  as.numeric()
+
+# print CP
+printcp(large.tree)
+
+# prune tree with the optimal cp
+opt.tree <- prune(large.tree, cp=cp_opt)
+```
+
+
+
+Let's compare the results of those three machines
+```{r warning=FALSE}
+# calculate prediction on the test dataset
+p.simple.tree = predict(simple.tree, newdata = test)[,2]
+p.large.tree  = predict(large.tree,  newdata = test)[,2]
+p.opt.tree    = predict(opt.tree,    newdata = test)[,2]
+
+pred.stree <- data.frame(
+  simple.tree = p.simple.tree,
+  large.tree  = p.large.tree,
+  opt.tree    = p.opt.tree
+  )
+
+# MSE
+pred.stree %>%
+  summarise_all(funs(mean((score.pred(., t) - test.y)^2))) %>%
+  setNames(paste0('MSE.', names(.)))
+```
+
+Those trees show poor results in comparison to the logit model, so let's try another model
+
+We will try to build a Random Forest which uses a Boostrap Aggregating method to improve the stability and the accuracy of our tree that are not very performant
+
+```{r}
+# set seed for reproducibility
+set.seed(seed)
+
+# train a machine using the RandomForest model
+forest <- randomForest(train.y.factor~.,data=train)
+forest
+```
+
+
+
+Now let's compare the results with the previous trees
+```{r}
+# calculate prediction on the test dataset
+p.forest = predict(forest, newdata = test, type="prob")[,2]
+
+pred.trees <- data.frame(
+  simple.tree = p.simple.tree,
+  large.tree  = p.large.tree,
+  opt.tree    = p.opt.tree,
+  forest      = p.forest,
+  obs         = test.y
+)
+
+# MSE
+pred.trees %>%
+  select(-obs) %>%
+  summarise_all(funs(mean((score.pred(., t) - test.y)^2))) %>%
+  setNames(paste0('MSE.', names(.)))
+```
+
+Wouw! Perfect score!
+Let's check the ROC curve
+
+
+```{r}
+# plot ROC
+df.trees <- pred.trees %>% gather(key="Score",value="value",-obs)
+ggplot(df.trees) + aes(d=obs,m=value,color=Score) + geom_roc() + theme_classic()
+```
+
+And now the AUC
+
+```{r}
+# AUC for all the trees built so far
+pred.trees %>%
+  select(-obs) %>%
+  summarise_all(funs(auc(test.y, .))) %>%
+  setNames(paste0('AUC.', names(.)))
+```
+
+
+That's indeed a perfect score...
+
+```{r}
+forest.pred.factor <- as.factor(score.pred(pred.trees$forest, t))
+obs.factor <- as.factor(test.y)
+
+# confusion matrix for the forest machine
+confusionMatrix(forest.pred.factor, obs.factor)
+```
+
+## Bonus: XGBoost
+
+Let's train the model
+```{r}
+train.matrix <- xgb.DMatrix(label = as.matrix(train.y), data = as.matrix(train))
+test.matrix  <- xgb.DMatrix(label = as.matrix(test.y),  data = as.matrix(test))
+
+# train machine using XGBoost model
+xgboost <- xgboost(
+  data = train.matrix,
+  nrounds = 10,
+  objective = "binary:logistic",
+  verbose = 0
+  )
+```
+
+
+And check the results
+```{r}
+pred.xgb <- data.frame(
+  forest      = predict(forest,  newdata = test, type="prob")[,2],
+  xgboost     = predict(xgboost, test.matrix),
+  obs         = test.y
+)
+
+# MSE
+pred.xgb %>%
+  select(-obs) %>%
+  summarise_all(funs(mean((score.pred(., t) - test.y)^2))) %>%
+  setNames(paste0('MSE.', names(.)))
+
+# ROC
+df.xgb <- pred.xgb %>% gather(key="Score",value="value",-obs)
+ggplot(df.xgb)+aes(d=obs,m=value,color=Score)+geom_roc()+theme_classic()
+
+# AUC
+pred.xgb %>%
+  select(-obs) %>%
+  summarise_all(funs(auc(test.y, .))) %>%
+  setNames(paste0('AUC.', names(.)))
+
+# confusion matrix
+forest.pred.factor <- as.factor(score.pred(predict(xgboost, test.matrix), t))
+confusionMatrix(forest.pred.factor, obs.factor)
+```
+
+The results are pretty good given that we trained our XGBoost algorithm on only 10 rounds whereas the RandomForest was built on 500 trees !
