@@ -4,6 +4,6 @@
 .Ruserdata
 *.pdf
 *.nb.html
-_site/
+docs/
 index_files/
 index_cache/
