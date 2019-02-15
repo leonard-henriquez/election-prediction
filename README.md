@@ -6,4 +6,4 @@ We used a dataset from Kaggle available [here](https://www.kaggle.com/benhamner/
 
 In the end we reached a perfect score with a Random Forest algorithm and a score almost as good with an XGBoost algorithm.
 
-Check out the web version [here](https://leonard-henriquez.github.io/US_Election/)!
+Check out the web version [here](https://leonard-henriquez.github.io/us-election/)!
